@@ -1,0 +1,39 @@
+﻿@page
+@model BijouxElegance.Pages.Admin.Categories.IndexModel
+@{
+    ViewData["Title"] = "Gestion des Catégories";
+}
+
+<div class="container py-5">
+    <h1 class="mb-4">Gestion des Catégories</h1>
+
+    <p>
+        <a asp-page="Create" class="btn btn-gold">Nouvelle Catégorie</a>
+        <a href="/Admin/Products" class="btn btn-outline-secondary ms-2">Gérer les Produits</a>
+    </p>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Nom</th>
+                <th>Description</th>
+                <th>Icône</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.Categories)
+            {
+                <tr>
+                    <td>@item.Name</td>
+                    <td>@item.Description</td>
+                    <td><i class="@item.IconClass"></i> @item.IconClass</td>
+                    <td>
+                        <a asp-page="./Edit" asp-route-id="@item.CategoryId" class="btn btn-sm btn-outline-primary">Modifier</a>
+                        <a asp-page="./Delete" asp-route-id="@item.CategoryId" class="btn btn-sm btn-outline-danger">Supprimer</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

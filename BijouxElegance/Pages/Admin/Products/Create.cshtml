@@ -1,0 +1,100 @@
+﻿@page
+@model BijouxElegance.Pages.Admin.Products.CreateModel
+@{
+    ViewData["Title"] = "Nouveau Produit";
+}
+
+<div class="container py-5">
+    <h1>Nouveau Produit</h1>
+
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+    }
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            <form method="post" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div asp-validation-summary="All" class="text-danger"></div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label asp-for="Product.Name" class="control-label">Nom *</label>
+                            <input asp-for="Product.Name" class="form-control" />
+                            <span asp-validation-for="Product.Name" class="text-danger"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label asp-for="Product.CategoryId" class="control-label">Catégorie *</label>
+                            <select asp-for="Product.CategoryId" class="form-control"
+                                    asp-items="ViewBag.Categories">
+                                <option value="">Sélectionner une catégorie</option>
+                            </select>
+                            <span asp-validation-for="Product.CategoryId" class="text-danger"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="Product.Description" class="control-label">Description</label>
+                    <textarea asp-for="Product.Description" class="form-control" rows="4"></textarea>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label asp-for="Product.Price" class="control-label">Prix *</label>
+                            <input asp-for="Product.Price" class="form-control" type="number" step="0.01" />
+                            <span asp-validation-for="Product.Price" class="text-danger"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label asp-for="Product.OldPrice" class="control-label">Ancien Prix (optionnel)</label>
+                            <input asp-for="Product.OldPrice" class="form-control" type="number" step="0.01" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label asp-for="Product.StockQuantity" class="control-label">Quantité en stock *</label>
+                            <input asp-for="Product.StockQuantity" class="form-control" type="number" />
+                            <span asp-validation-for="Product.StockQuantity" class="text-danger"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group mb-3">
+                            <label class="control-label">Image (fichier)</label>
+                            <input type="file" asp-for="ImageFile" class="form-control" />
+                            <small class="text-muted">Sélectionnez une image depuis votre ordinateur.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <div class="form-check">
+                        <input asp-for="Product.IsFeatured" class="form-check-input" />
+                        <label asp-for="Product.IsFeatured" class="form-check-label">Produit vedette</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <input type="submit" value="Créer" class="btn btn-gold" />
+                    <a asp-page="Index" class="btn btn-outline-secondary">Annuler</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

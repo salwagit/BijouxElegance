@@ -1,0 +1,31 @@
+﻿@page "{id:int}"
+@model BijouxElegance.Pages.CategoryModel
+@{
+    ViewData["Title"] = Model.Category.Name;
+}
+
+<div class="container py-5">
+    <h1>@Model.Category.Name</h1>
+    <p>@Model.Category.Description</p>
+
+    <div class="row">
+        @foreach (var product in Model.Category.Products)
+        {
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <img src="@product.ImageUrl" class="card-img-top" alt="@product.Name">
+                    <div class="card-body">
+                        <h5 class="card-title">@product.Name</h5>
+                        <p class="card-text">@product.Description</p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="price">@product.Price.ToString("C")</span>
+                            <a href="/ProductDetail/@product.ProductId" class="btn btn-gold btn-sm">
+                                Voir détails
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>

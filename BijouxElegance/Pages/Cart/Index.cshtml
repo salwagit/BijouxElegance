@@ -1,0 +1,197 @@
+﻿@page
+@model BijouxElegance.Pages.Cart.IndexModel
+@{
+    ViewData["Title"] = "Mon Panier";
+}
+
+<div class="container py-5">
+    <h1 class="mb-4">Mon Panier</h1>
+
+    @if (!Model.CartItems.Any())
+    {
+        <div id="empty-cart-message" class="text-center py-5">
+            <p class="lead">Votre panier est vide</p>
+            <a href="/" class="btn btn-gold">Continuer mes achats</a>
+        </div>
+
+        <script>
+            (function() {
+                try {
+                    const raw = localStorage.getItem('cart');
+                    const cart = raw ? JSON.parse(raw) : [];
+                    if (!cart || cart.length === 0) return;
+
+                    const container = document.querySelector('.container.py-5');
+                    // remove the empty message
+                    const empty = document.getElementById('empty-cart-message');
+                    if (empty) empty.remove();
+
+                    // create root layout similar to server markup
+                    const row = document.createElement('div');
+                    row.className = 'row';
+
+                    const leftCol = document.createElement('div');
+                    leftCol.className = 'col-md-8';
+
+                    const rightCol = document.createElement('div');
+                    rightCol.className = 'col-md-4';
+
+                    // for each cart item, fetch product JSON and build card
+                    let promises = cart.map(async (ci) => {
+                        const id = ci.productId || ci.ProductId || ci.productID;
+                        const qty = ci.quantity || ci.Quantity || 1;
+                        try {
+                            const res = await fetch(`/ProductDetailJson/${id}`);
+                            if (!res.ok) return null;
+                            const p = await res.json();
+                            return { product: p, quantity: qty };
+                        } catch (e) { return null; }
+                    });
+
+                    Promise.all(promises).then(items => {
+                        let subtotal = 0;
+                        items.forEach(it => {
+                            if (!it || !it.product) return;
+                            const prod = it.product;
+                            const qty = it.quantity;
+                            subtotal += (prod.price || 0) * qty;
+
+                            const card = document.createElement('div');
+                            card.className = 'card mb-3';
+                            card.innerHTML = `
+                                <div class="row g-0">
+                                    <div class="col-md-3">
+                                        <img src="${prod.imageUrl || '/images/placeholder.png'}" class="img-fluid rounded-start" alt="${escapeHtml(prod.name)}">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card-body">
+                                            <h5 class="card-title">${escapeHtml(prod.name)}</h5>
+                                            <p class="card-text">${escapeHtml(prod.description || '')}</p>
+                                            <p class="price">${prod.priceFormatted || (prod.price ? prod.price.toLocaleString(undefined, {style:'currency', currency: 'USD'}) : '')}</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card-body">
+                                            <div class="input-group mb-2">
+                                                <input type="number" value="${qty}" min="1" class="form-control" style="width:80px; display:inline-block;" />
+                                            </div>
+                                            <button class="btn btn-outline-danger remove-local" data-id="${prod.productId}"><i class="fas fa-trash"></i> Supprimer</button>
+                                        </div>
+                                    </div>
+                                </div>`;
+
+                            leftCol.appendChild(card);
+                        });
+
+                        // build summary
+                        const cardSummary = document.createElement('div');
+                        cardSummary.className = 'card';
+                        cardSummary.innerHTML = `
+                            <div class="card-body">
+                                <h5 class="card-title">Récapitulatif</h5>
+                                <p>Sous-total: <strong>${(subtotal).toLocaleString(undefined,{style:'currency',currency:'USD'})}</strong></p>
+                                <p>Livraison: <strong>Gratuite</strong></p>
+                                <hr>
+                                <h4>Total: <span class="price">${(subtotal).toLocaleString(undefined,{style:'currency',currency:'USD'})}</span></h4>
+
+                                <div class="d-grid gap-2 mt-3">
+                                    <a href="#" class="btn btn-gold btn-lg">Commander</a>
+                                    <a href="/" class="btn btn-outline-secondary">Continuer mes achats</a>
+                                </div>
+                            </div>`;
+
+                        rightCol.appendChild(cardSummary);
+                        row.appendChild(leftCol);
+                        row.appendChild(rightCol);
+                        container.appendChild(row);
+
+                        // attach remove handlers
+                        document.querySelectorAll('.remove-local').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                const id = this.dataset.id;
+                                let local = localStorage.getItem('cart');
+                                let arr = local ? JSON.parse(local) : [];
+                                arr = arr.filter(x => (x.productId || x.ProductId || x.productID) != id);
+                                localStorage.setItem('cart', JSON.stringify(arr));
+                                // refresh page to re-render
+                                location.reload();
+                            });
+                        });
+
+                        // update cart-count UI
+                        const totalCount = items.reduce((s,i) => s + (i ? i.quantity : 0), 0);
+                        document.querySelectorAll('.cart-count').forEach(el => el.textContent = totalCount);
+                    });
+
+                    function escapeHtml(str) { if (!str) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+                } catch (e) {
+                    console.error('Error rendering local cart', e);
+                }
+            })();
+        </script>
+    }
+    else
+    {
+        <div>
+            <div class="row">
+                <div class="col-md-8">
+                    @foreach (var item in Model.CartItems)
+                    {
+                        <div class="card mb-3">
+                            <div class="row g-0">
+                                <div class="col-md-3">
+                                    <img src="@item.Product.ImageUrl" class="img-fluid rounded-start" alt="@item.Product.Name">
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card-body">
+                                        <h5 class="card-title">@item.Product.Name</h5>
+                                        <p class="card-text">@item.Product.Description</p>
+                                        <p class="price">@item.Product.Price.ToString("C")</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card-body">
+                                        <form method="post" asp-page-handler="Update">
+                                            <input type="hidden" name="productId" value="@item.ProductId" />
+                                            <div class="input-group mb-2">
+                                                <input type="number" name="quantity" value="@item.Quantity"
+                                                       class="form-control" min="1">
+                                                <button type="submit" class="btn btn-outline-primary">
+                                                    <i class="fas fa-sync"></i>
+                                                </button>
+                                            </div>
+                                        </form>
+
+                                        <form method="post" asp-page-handler="Remove">
+                                            <input type="hidden" name="productId" value="@item.ProductId" />
+                                            <button type="submit" class="btn btn-outline-danger">
+                                                <i class="fas fa-trash"></i> Supprimer
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Récapitulatif</h5>
+                            <p>Sous-total: <strong>@Model.Total.ToString("C")</strong></p>
+                            <p>Livraison: <strong>Gratuite</strong></p>
+                            <hr>
+                            <h4>Total: <span class="price">@Model.Total.ToString("C")</span></h4>
+
+                            <div class="d-grid gap-2 mt-3">
+                                <a href="#" class="btn btn-gold btn-lg">Commander</a>
+                                <a href="/" class="btn btn-outline-secondary">Continuer mes achats</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
