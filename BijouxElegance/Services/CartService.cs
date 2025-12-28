@@ -1,275 +1,232 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using BijouxElegance.Data;
+﻿using BijouxElegance.Data;
 using BijouxElegance.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Distributed;
-using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
+using System.Security.Claims;
 
 namespace BijouxElegance.Services
 {
     public class CartService
     {
         private readonly ApplicationDbContext _context;
-        private readonly IDistributedCache _cache;
+        private readonly IMemoryCache _cache;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public CartService(ApplicationDbContext context, IDistributedCache cache)
+        public CartService(ApplicationDbContext context, IMemoryCache cache, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _cache = cache;
+            _httpContextAccessor = httpContextAccessor;
         }
 
+        // Génère un nouvel ID de panier
         public string GetCartId()
         {
             return Guid.NewGuid().ToString();
         }
 
-        public void AddToCart(string cartId, int productId, int quantity)
+        // Récupère ou crée un CartId pour l'utilisateur/session actuel
+        public string GetOrCreateCartId()
         {
-            if (quantity <= 0) throw new ArgumentException("Quantity must be greater than zero.", nameof(quantity));
+            var httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext == null)
+                return GetCartId();
 
-            // Persist to DB cart items to support long-term storage
-            var cartItem = _context.CartItems
-                .FirstOrDefault(c => c.CartId == cartId && c.ProductId == productId);
-
-            if (cartItem == null)
+            if (httpContext.User.Identity?.IsAuthenticated == true)
             {
-                cartItem = new CartItem
-                {
-                    ProductId = productId,
-                    CartId = cartId,
-                    Quantity = quantity,
-                    ItemId = Guid.NewGuid().ToString()
-                };
-                _context.CartItems.Add(cartItem);
+                // Pour les utilisateurs connectés, utiliser leur ID
+                var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                return userId ?? GetCartId();
             }
             else
             {
-                cartItem.Quantity += quantity;
-            }
-
-            try
-            {
-                _context.SaveChanges();
-            }
-            catch (Exception ex)
-            {
-                // wrap to provide clearer diagnostics
-                throw new InvalidOperationException("Failed to save cart changes to the database.", ex);
-            }
-
-            // Also update cache to keep session cart in sync
-            try
-            {
-                var cacheKey = $"cart:{cartId}";
-                var existing = _cache.GetString(cacheKey);
-                List<CacheEntry>? list = null;
-                if (!string.IsNullOrEmpty(existing))
+                // Pour les utilisateurs non connectés, utiliser la session
+                var cartId = httpContext.Session.GetString("CartId");
+                if (string.IsNullOrEmpty(cartId))
                 {
-                    try { list = JsonSerializer.Deserialize<List<CacheEntry>>(existing); }
-                    catch { list = null; }
+                    cartId = GetCartId();
+                    httpContext.Session.SetString("CartId", cartId);
                 }
-                if (list == null) list = new List<CacheEntry>();
+                return cartId;
+            }
+        }
 
-                var entry = list.FirstOrDefault(i => i.ProductId == productId);
-                if (entry == null)
+        // Méthode principale pour ajouter au panier
+        public void AddToCart(string cartId, int productId, int quantity = 1)
+        {
+            if (quantity < 1) quantity = 1;
+
+            var product = _context.Products.Find(productId);
+            if (product == null)
+                throw new ArgumentException("Produit non trouvé");
+
+            if (quantity > product.StockQuantity)
+                throw new InvalidOperationException($"Stock insuffisant. Disponible: {product.StockQuantity}");
+
+            // Pour les utilisateurs connectés ou avec session
+            AddToDatabaseCart(cartId, productId, quantity);
+        }
+
+        private void AddToDatabaseCart(string cartId, int productId, int quantity)
+        {
+            var existingItem = _context.CartItems
+                .FirstOrDefault(ci => ci.ProductId == productId && ci.CartId == cartId);
+            
+            if (existingItem != null)
+            {
+                existingItem.Quantity += quantity;
+            }
+            else
+            {
+                var cartItem = new CartItem
                 {
-                    var product = _context.Products.Find(productId);
-                    list.Add(new CacheEntry { ProductId = productId, Quantity = quantity, PriceCents = (int)(product?.Price * 100 ?? 0), Product = product });
+                    ItemId = Guid.NewGuid().ToString(),
+                    CartId = cartId,
+                    ProductId = productId,
+                    Quantity = quantity
+                };
+                _context.CartItems.Add(cartItem);
+            }
+
+            _context.SaveChanges();
+            _cache.Remove($"cart_count_{cartId}");
+            _cache.Remove($"cart_items_{cartId}");
+        }
+
+        // Synchroniser localStorage vers base de données
+        public void SyncLocalStorageToDatabase(string cartId, List<LocalCartItemDTO> localItems)
+        {
+            foreach (var item in localItems)
+            {
+                var existingItem = _context.CartItems
+                    .FirstOrDefault(ci => ci.ProductId == item.ProductId && ci.CartId == cartId);
+
+                if (existingItem != null)
+                {
+                    existingItem.Quantity += item.Quantity;
                 }
                 else
                 {
-                    entry.Quantity += quantity;
-                }
-
-                var serialized = JsonSerializer.Serialize(list);
-                _cache.SetString(cacheKey, serialized, new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromDays(30) });
-            }
-            catch
-            {
-                // ignore cache failures
-            }
-        }
-
-        public List<CartItem> GetCartItems(string cartId)
-        {
-            // Prefer DB-stored cart items
-            var dbItems = _context.CartItems
-                .Include(c => c.Product)
-                .Where(c => c.CartId == cartId)
-                .ToList();
-
-            if (dbItems != null && dbItems.Count > 0)
-            {
-                // Ensure navigation properties are not null
-                foreach (var ci in dbItems)
-                {
-                    if (ci.Product == null)
-                    {
-                        var prod = _context.Products.Find(ci.ProductId);
-                        ci.Product = prod ?? new Product { ProductId = ci.ProductId, Name = "Produit inconnu", Description = "", Price = 0m, ImageUrl = "/images/placeholder.png", StockQuantity = 0, CategoryId = 0 };
-                    }
-                }
-
-                return dbItems;
-            }
-
-            // Fallback to cache
-            try
-            {
-                var cacheKey = $"cart:{cartId}";
-                var existing = _cache.GetString(cacheKey);
-                if (string.IsNullOrEmpty(existing)) return new List<CartItem>();
-
-                List<CacheEntry>? list = null;
-                try { list = JsonSerializer.Deserialize<List<CacheEntry>>(existing); }
-                catch { list = null; }
-                if (list == null) return new List<CartItem>();
-
-                var result = new List<CartItem>();
-                foreach (var e in list)
-                {
-                    var prod = e.Product;
-                    if (prod == null)
-                    {
-                        prod = _context.Products.Find(e.ProductId);
-                    }
-
-                    // fallback placeholder to avoid null reference
-                    if (prod == null)
-                    {
-                        prod = new Product
-                        {
-                            ProductId = e.ProductId,
-                            Name = "Produit inconnu",
-                            Description = string.Empty,
-                            Price = 0m,
-                            ImageUrl = "/images/placeholder.png",
-                            StockQuantity = 0,
-                            CategoryId = 0
-                        };
-                    }
-
-                    result.Add(new CartItem
+                    var cartItem = new CartItem
                     {
                         ItemId = Guid.NewGuid().ToString(),
                         CartId = cartId,
-                        ProductId = e.ProductId,
-                        Quantity = e.Quantity,
-                        Product = prod
-                    });
+                        ProductId = item.ProductId,
+                        Quantity = item.Quantity
+                    };
+                    _context.CartItems.Add(cartItem);
                 }
-
-                return result;
             }
-            catch
+
+            _context.SaveChanges();
+            _cache.Remove($"cart_count_{cartId}");
+            _cache.Remove($"cart_items_{cartId}");
+        }
+
+        // Obtenir le nombre d'articles
+        public int GetCartCount(string cartId)
+        {
+            if (string.IsNullOrEmpty(cartId))
+                return 0;
+
+            return _cache.GetOrCreate($"cart_count_{cartId}", entry =>
             {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return _context.CartItems
+                    .Where(ci => ci.CartId == cartId)
+                    .Sum(ci => (int?)ci.Quantity) ?? 0;
+            });
+        }
+
+        // Récupérer les articles du panier
+        public List<CartItem> GetCartItems(string cartId)
+        {
+            if (string.IsNullOrEmpty(cartId))
                 return new List<CartItem>();
-            }
+
+            return _cache.GetOrCreate($"cart_items_{cartId}", entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                return _context.CartItems
+                    .Include(ci => ci.Product)
+                        .ThenInclude(p => p.Category)
+                    .Where(ci => ci.CartId == cartId)
+                    .OrderByDescending(ci => ci.ItemId)
+                    .ToList();
+            }) ?? new List<CartItem>();
         }
 
-        public void RemoveFromCart(string cartId, int productId)
+        // Obtenir le total du panier
+        public decimal GetCartTotal(string cartId)
         {
-            var cartItem = _context.CartItems
-                .FirstOrDefault(c => c.CartId == cartId && c.ProductId == productId);
-
-            if (cartItem != null)
-            {
-                _context.CartItems.Remove(cartItem);
-                _context.SaveChanges();
-            }
-
-            // update cache
-            try
-            {
-                var cacheKey = $"cart:{cartId}";
-                var existing = _cache.GetString(cacheKey);
-                if (string.IsNullOrEmpty(existing)) return;
-                var list = JsonSerializer.Deserialize<List<CacheEntry>>(existing) ?? new List<CacheEntry>();
-                list.RemoveAll(i => i.ProductId == productId);
-                _cache.SetString(cacheKey, JsonSerializer.Serialize(list), new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromDays(30) });
-            }
-            catch { }
+            var items = GetCartItems(cartId);
+            return items.Sum(ci => ci.Quantity * ci.Product.Price);
         }
 
-        public void UpdateQuantity(string cartId, int productId, int quantity)
+        // Mettre à jour la quantité
+        public void UpdateCartItem(string cartId, int productId, int quantity)
         {
+            if (quantity < 1)
+            {
+                RemoveFromCart(cartId, productId);
+                return;
+            }
+
+            var product = _context.Products.Find(productId);
+            if (product == null)
+                throw new ArgumentException("Produit non trouvé");
+
+            if (quantity > product.StockQuantity)
+                throw new InvalidOperationException($"Quantité supérieure au stock disponible ({product.StockQuantity})");
+
             var cartItem = _context.CartItems
-                .FirstOrDefault(c => c.CartId == cartId && c.ProductId == productId);
+                .FirstOrDefault(ci => ci.ProductId == productId && ci.CartId == cartId);
 
             if (cartItem != null)
             {
                 cartItem.Quantity = quantity;
                 _context.SaveChanges();
+                _cache.Remove($"cart_count_{cartId}");
+                _cache.Remove($"cart_items_{cartId}");
             }
-
-            try
-            {
-                var cacheKey = $"cart:{cartId}";
-                var existing = _cache.GetString(cacheKey);
-                if (string.IsNullOrEmpty(existing)) return;
-                var list = JsonSerializer.Deserialize<List<CacheEntry>>(existing) ?? new List<CacheEntry>();
-                var entry = list.FirstOrDefault(i => i.ProductId == productId);
-                if (entry != null)
-                {
-                    entry.Quantity = quantity;
-                    _cache.SetString(cacheKey, JsonSerializer.Serialize(list), new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromDays(30) });
-                }
-            }
-            catch { }
         }
 
-        public decimal GetTotal(string cartId)
+        // Supprimer un article
+        public void RemoveFromCart(string cartId, int productId)
         {
-            var items = GetCartItems(cartId);
-            return items.Sum(c => c.Quantity * (c.Product?.Price ?? 0));
-        }
+            var cartItem = _context.CartItems
+                .FirstOrDefault(ci => ci.ProductId == productId && ci.CartId == cartId);
 
-        public int GetCartCount(string cartId)
-        {
-            var dbCount = _context.CartItems
-                .Where(c => c.CartId == cartId)
-                .Sum(c => (int?)c.Quantity) ?? 0;
-
-            if (dbCount > 0) return dbCount;
-
-            try
+            if (cartItem != null)
             {
-                var cacheKey = $"cart:{cartId}";
-                var existing = _cache.GetString(cacheKey);
-                if (string.IsNullOrEmpty(existing)) return 0;
-                var list = JsonSerializer.Deserialize<List<CacheEntry>>(existing) ?? new List<CacheEntry>();
-                return list.Sum(i => i.Quantity);
-            }
-            catch
-            {
-                return 0;
+                _context.CartItems.Remove(cartItem);
+                _context.SaveChanges();
+                _cache.Remove($"cart_count_{cartId}");
+                _cache.Remove($"cart_items_{cartId}");
             }
         }
 
+        // Vider le panier
         public void ClearCart(string cartId)
         {
-            var cartItems = _context.CartItems
-                .Where(c => c.CartId == cartId);
+            var items = _context.CartItems
+                .Where(ci => ci.CartId == cartId)
+                .ToList();
 
-            _context.CartItems.RemoveRange(cartItems);
-            _context.SaveChanges();
-
-            try
+            if (items.Any())
             {
-                var cacheKey = $"cart:{cartId}";
-                _cache.Remove(cacheKey);
+                _context.CartItems.RemoveRange(items);
+                _context.SaveChanges();
+                _cache.Remove($"cart_count_{cartId}");
+                _cache.Remove($"cart_items_{cartId}");
             }
-            catch { }
         }
+    }
 
-        private class CacheEntry
-        {
-            public int ProductId { get; set; }
-            public int Quantity { get; set; }
-            public int PriceCents { get; set; }
-            public Product? Product { get; set; }
-        }
+    // DTO pour les articles du localStorage
+    public class LocalCartItemDTO
+    {
+        public int ProductId { get; set; }
+        public int Quantity { get; set; }
     }
 }

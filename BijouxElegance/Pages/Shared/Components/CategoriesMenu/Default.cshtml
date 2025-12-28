@@ -1,0 +1,13 @@
+﻿@model List<BijouxElegance.Models.Category>
+
+@if (Model != null && Model.Any())
+{
+    @foreach (var category in Model)
+    {
+        <li><a class="dropdown-item" href="/Category/@category.CategoryId">@category.Name</a></li>
+    }
+}
+else
+{
+    <li><a class="dropdown-item text-muted" href="#">Aucune catégorie</a></li>
+}

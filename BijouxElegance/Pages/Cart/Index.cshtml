@@ -7,191 +7,388 @@
 <div class="container py-5">
     <h1 class="mb-4">Mon Panier</h1>
 
-    @if (!Model.CartItems.Any())
-    {
-        <div id="empty-cart-message" class="text-center py-5">
-            <p class="lead">Votre panier est vide</p>
-            <a href="/" class="btn btn-gold">Continuer mes achats</a>
+    <div id="cart-container">
+        <!-- Message pour utilisateurs non connectés -->
+        @if (!User.Identity.IsAuthenticated)
+        {
+            <div class="alert alert-info mb-4">
+                <i class="fas fa-info-circle"></i>
+                Vous n'êtes pas connecté. Votre panier est sauvegardé localement.
+                <a href="/Identity/Account/Login?returnUrl=/Cart" class="alert-link">
+                    Connectez-vous pour sauvegarder votre panier.
+                </a>
+            </div>
+        }
+
+        <!-- Conteneur pour le panier localStorage -->
+        <div id="local-cart-content">
+            <!-- Le JavaScript va remplir ce conteneur -->
         </div>
 
-        <script>
-            (function() {
+        <!-- Message panier vide (affiché par défaut) -->
+        <div id="empty-cart-message" class="text-center py-5" style="display: none;">
+            <i class="fas fa-shopping-cart fa-4x text-muted mb-4"></i>
+            <p class="lead">Votre panier est vide</p>
+            <a href="/" class="btn btn-gold">
+                <i class="fas fa-store"></i> Découvrir nos bijoux
+            </a>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Gestionnaire de panier localStorage
+        const CartManager = {
+            // Récupérer le panier depuis localStorage
+            getCart: function() {
                 try {
-                    const raw = localStorage.getItem('cart');
-                    const cart = raw ? JSON.parse(raw) : [];
-                    if (!cart || cart.length === 0) return;
-
-                    const container = document.querySelector('.container.py-5');
-                    // remove the empty message
-                    const empty = document.getElementById('empty-cart-message');
-                    if (empty) empty.remove();
-
-                    // create root layout similar to server markup
-                    const row = document.createElement('div');
-                    row.className = 'row';
-
-                    const leftCol = document.createElement('div');
-                    leftCol.className = 'col-md-8';
-
-                    const rightCol = document.createElement('div');
-                    rightCol.className = 'col-md-4';
-
-                    // for each cart item, fetch product JSON and build card
-                    let promises = cart.map(async (ci) => {
-                        const id = ci.productId || ci.ProductId || ci.productID;
-                        const qty = ci.quantity || ci.Quantity || 1;
-                        try {
-                            const res = await fetch(`/ProductDetailJson/${id}`);
-                            if (!res.ok) return null;
-                            const p = await res.json();
-                            return { product: p, quantity: qty };
-                        } catch (e) { return null; }
-                    });
-
-                    Promise.all(promises).then(items => {
-                        let subtotal = 0;
-                        items.forEach(it => {
-                            if (!it || !it.product) return;
-                            const prod = it.product;
-                            const qty = it.quantity;
-                            subtotal += (prod.price || 0) * qty;
-
-                            const card = document.createElement('div');
-                            card.className = 'card mb-3';
-                            card.innerHTML = `
-                                <div class="row g-0">
-                                    <div class="col-md-3">
-                                        <img src="${prod.imageUrl || '/images/placeholder.png'}" class="img-fluid rounded-start" alt="${escapeHtml(prod.name)}">
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="card-body">
-                                            <h5 class="card-title">${escapeHtml(prod.name)}</h5>
-                                            <p class="card-text">${escapeHtml(prod.description || '')}</p>
-                                            <p class="price">${prod.priceFormatted || (prod.price ? prod.price.toLocaleString(undefined, {style:'currency', currency: 'USD'}) : '')}</p>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="card-body">
-                                            <div class="input-group mb-2">
-                                                <input type="number" value="${qty}" min="1" class="form-control" style="width:80px; display:inline-block;" />
-                                            </div>
-                                            <button class="btn btn-outline-danger remove-local" data-id="${prod.productId}"><i class="fas fa-trash"></i> Supprimer</button>
-                                        </div>
-                                    </div>
-                                </div>`;
-
-                            leftCol.appendChild(card);
-                        });
-
-                        // build summary
-                        const cardSummary = document.createElement('div');
-                        cardSummary.className = 'card';
-                        cardSummary.innerHTML = `
-                            <div class="card-body">
-                                <h5 class="card-title">Récapitulatif</h5>
-                                <p>Sous-total: <strong>${(subtotal).toLocaleString(undefined,{style:'currency',currency:'USD'})}</strong></p>
-                                <p>Livraison: <strong>Gratuite</strong></p>
-                                <hr>
-                                <h4>Total: <span class="price">${(subtotal).toLocaleString(undefined,{style:'currency',currency:'USD'})}</span></h4>
-
-                                <div class="d-grid gap-2 mt-3">
-                                    <a href="#" class="btn btn-gold btn-lg">Commander</a>
-                                    <a href="/" class="btn btn-outline-secondary">Continuer mes achats</a>
-                                </div>
-                            </div>`;
-
-                        rightCol.appendChild(cardSummary);
-                        row.appendChild(leftCol);
-                        row.appendChild(rightCol);
-                        container.appendChild(row);
-
-                        // attach remove handlers
-                        document.querySelectorAll('.remove-local').forEach(btn => {
-                            btn.addEventListener('click', function() {
-                                const id = this.dataset.id;
-                                let local = localStorage.getItem('cart');
-                                let arr = local ? JSON.parse(local) : [];
-                                arr = arr.filter(x => (x.productId || x.ProductId || x.productID) != id);
-                                localStorage.setItem('cart', JSON.stringify(arr));
-                                // refresh page to re-render
-                                location.reload();
-                            });
-                        });
-
-                        // update cart-count UI
-                        const totalCount = items.reduce((s,i) => s + (i ? i.quantity : 0), 0);
-                        document.querySelectorAll('.cart-count').forEach(el => el.textContent = totalCount);
-                    });
-
-                    function escapeHtml(str) { if (!str) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
-                } catch (e) {
-                    console.error('Error rendering local cart', e);
+                    const cartJson = localStorage.getItem('bijoux-cart');
+                    return cartJson ? JSON.parse(cartJson) : [];
+                } catch (error) {
+                    console.error('Erreur lecture localStorage:', error);
+                    return [];
                 }
-            })();
-        </script>
-    }
-    else
-    {
-        <div>
-            <div class="row">
-                <div class="col-md-8">
-                    @foreach (var item in Model.CartItems)
-                    {
-                        <div class="card mb-3">
-                            <div class="row g-0">
-                                <div class="col-md-3">
-                                    <img src="@item.Product.ImageUrl" class="img-fluid rounded-start" alt="@item.Product.Name">
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="card-body">
-                                        <h5 class="card-title">@item.Product.Name</h5>
-                                        <p class="card-text">@item.Product.Description</p>
-                                        <p class="price">@item.Product.Price.ToString("C")</p>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card-body">
-                                        <form method="post" asp-page-handler="Update">
-                                            <input type="hidden" name="productId" value="@item.ProductId" />
-                                            <div class="input-group mb-2">
-                                                <input type="number" name="quantity" value="@item.Quantity"
-                                                       class="form-control" min="1">
-                                                <button type="submit" class="btn btn-outline-primary">
-                                                    <i class="fas fa-sync"></i>
-                                                </button>
-                                            </div>
-                                        </form>
+            },
 
-                                        <form method="post" asp-page-handler="Remove">
-                                            <input type="hidden" name="productId" value="@item.ProductId" />
-                                            <button type="submit" class="btn btn-outline-danger">
-                                                <i class="fas fa-trash"></i> Supprimer
-                                            </button>
-                                        </form>
+            // Sauvegarder le panier dans localStorage
+            saveCart: function(cart) {
+                localStorage.setItem('bijoux-cart', JSON.stringify(cart));
+                this.updateCartCount();
+            },
+
+            // Ajouter un article
+            addItem: function(productId, quantity = 1) {
+                let cart = this.getCart();
+                const existing = cart.find(item => item.productId == productId);
+
+                if (existing) {
+                    existing.quantity += quantity;
+                } else {
+                    cart.push({
+                        productId: productId,
+                        quantity: quantity,
+                        addedAt: new Date().toISOString()
+                    });
+                }
+
+                this.saveCart(cart);
+                return cart;
+            },
+
+            // Mettre à jour la quantité
+            updateItem: function(productId, quantity) {
+                let cart = this.getCart();
+                const itemIndex = cart.findIndex(item => item.productId == productId);
+
+                if (itemIndex !== -1) {
+                    if (quantity < 1) {
+                        // Supprimer si quantité < 1
+                        cart.splice(itemIndex, 1);
+                    } else {
+                        cart[itemIndex].quantity = quantity;
+                    }
+                    this.saveCart(cart);
+                }
+                return cart;
+            },
+
+            // Supprimer un article
+            removeItem: function(productId) {
+                let cart = this.getCart();
+                cart = cart.filter(item => item.productId != productId);
+                this.saveCart(cart);
+                return cart;
+            },
+
+            // Vider le panier
+            clearCart: function() {
+                localStorage.removeItem('bijoux-cart');
+                this.updateCartCount();
+            },
+
+            // Compter le nombre total d'articles
+            getItemCount: function() {
+                const cart = this.getCart();
+                return cart.reduce((total, item) => total + item.quantity, 0);
+            },
+
+            // Mettre à jour le compteur dans l'UI
+            updateCartCount: function() {
+                const count = this.getItemCount();
+                document.querySelectorAll('.cart-count').forEach(el => {
+                    if (count > 0) {
+                        el.textContent = count;
+                        el.style.display = 'inline-block';
+                    } else {
+                        el.style.display = 'none';
+                    }
+                });
+            }
+        };
+
+        // Afficher le panier localStorage
+        async function renderLocalCart() {
+            const cart = CartManager.getCart();
+            const container = document.getElementById('local-cart-content');
+            const emptyMsg = document.getElementById('empty-cart-message');
+
+            if (!cart || cart.length === 0) {
+                if (container) container.innerHTML = '';
+                if (emptyMsg) emptyMsg.style.display = 'block';
+                CartManager.updateCartCount();
+                return;
+            }
+
+            if (emptyMsg) emptyMsg.style.display = 'none';
+
+            let html = '';
+            let subtotal = 0;
+            const itemsData = [];
+
+            // Récupérer les infos des produits
+            for (const item of cart) {
+                try {
+                    const response = await fetch(`/api/products/${item.productId}/cart-info`);
+                    if (!response.ok) continue;
+
+                    const product = await response.json();
+                    itemsData.push({
+                        product,
+                        quantity: item.quantity
+                    });
+                } catch (error) {
+                    console.error('Erreur récupération produit:', error);
+                }
+            }
+
+            // Si pas d'articles valides
+            if (itemsData.length === 0) {
+                if (container) container.innerHTML = '';
+                if (emptyMsg) emptyMsg.style.display = 'block';
+                CartManager.clearCart();
+                return;
+            }
+
+            // Afficher les articles
+            html += '<div class="row">';
+            html += '<div class="col-lg-8" id="local-cart-items">';
+
+            for (const item of itemsData) {
+                const { product, quantity } = item;
+                const itemTotal = (product.price || 0) * quantity;
+                subtotal += itemTotal;
+
+                html += `
+                    <div class="card mb-3 local-cart-item" data-product-id="${product.productId}">
+                        <div class="row g-0 align-items-center">
+                            <div class="col-md-2">
+                                <img src="${product.imageUrl || '/images/placeholder.jpg'}"
+                                     class="img-fluid rounded"
+                                     alt="${escapeHtml(product.name)}"
+                                     style="height: 100px; object-fit: cover;">
+                            </div>
+                            <div class="col-md-5">
+                                <div class="card-body py-2">
+                                    <h6 class="card-title mb-1">${escapeHtml(product.name)}</h6>
+                                    <p class="card-text small text-muted mb-0">${escapeHtml(product.categoryName || '')}</p>
+                                    <p class="price mb-0 fw-bold">${formatCurrency(product.price)}</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card-body py-2">
+                                    <div class="input-group input-group-sm">
+                                        <button class="btn btn-outline-secondary btn-sm"
+                                                onclick="updateLocalCartItem(${product.productId}, -1)">
+                                            <i class="fas fa-minus"></i>
+                                        </button>
+                                        <input type="number"
+                                               value="${quantity}"
+                                               min="1"
+                                               class="form-control text-center local-quantity"
+                                               data-product-id="${product.productId}"
+                                               style="width: 70px;"
+                                               onchange="updateLocalCartItem(${product.productId}, 0, this.value)">
+                                        <button class="btn btn-outline-secondary btn-sm"
+                                                onclick="updateLocalCartItem(${product.productId}, 1)">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
+                            <div class="col-md-2">
+                                <div class="card-body py-2 text-end">
+                                    <p class="mb-1 fw-bold local-item-total">${formatCurrency(itemTotal)}</p>
+                                    <button class="btn btn-outline-danger btn-sm"
+                                            onclick="removeLocalCartItem(${product.productId})">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                    }
-                </div>
+                    </div>
+                `;
+            }
 
-                <div class="col-md-4">
+            html += '</div>'; // Fermeture col-lg-8
+
+            // Récapitulatif
+            html += `
+                <div class="col-lg-4">
                     <div class="card">
                         <div class="card-body">
                             <h5 class="card-title">Récapitulatif</h5>
-                            <p>Sous-total: <strong>@Model.Total.ToString("C")</strong></p>
-                            <p>Livraison: <strong>Gratuite</strong></p>
+                            <p>Sous-total: <strong id="local-subtotal">${formatCurrency(subtotal)}</strong></p>
+                            <p>Livraison: <strong class="text-success">Gratuite</strong></p>
                             <hr>
-                            <h4>Total: <span class="price">@Model.Total.ToString("C")</span></h4>
+                            <h4>Total: <span class="price" id="local-total">${formatCurrency(subtotal)}</span></h4>
 
                             <div class="d-grid gap-2 mt-3">
-                                <a href="#" class="btn btn-gold btn-lg">Commander</a>
+            `;
+
+            if (@User.Identity.IsAuthenticated.ToString().ToLower()) {
+                html += `
+                    <a href="/Checkout" class="btn btn-gold btn-lg">
+                        <i class="fas fa-lock"></i> Passer la commande
+                    </a>
+                `;
+            } else {
+                html += `
+                    <a href="/Identity/Account/Login?returnUrl=/Cart" class="btn btn-gold btn-lg">
+                        <i class="fas fa-sign-in-alt"></i> Se connecter pour commander
+                    </a>
+                `;
+            }
+
+            html += `
                                 <a href="/" class="btn btn-outline-secondary">Continuer mes achats</a>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    }
-</div>
+            `;
+
+            html += '</div>'; // Fermeture row
+
+            if (container) {
+                container.innerHTML = html;
+            }
+
+            CartManager.updateCartCount();
+        }
+
+        // Fonctions pour gérer le panier localStorage
+        function updateLocalCartItem(productId, delta, newValue = null) {
+            const currentCart = CartManager.getCart();
+            const item = currentCart.find(item => item.productId == productId);
+
+            if (!item) return;
+
+            let newQuantity;
+
+            if (newValue !== null) {
+                newQuantity = parseInt(newValue) || 1;
+            } else {
+                newQuantity = item.quantity + delta;
+            }
+
+            // Limiter à minimum 1
+            if (newQuantity < 1) newQuantity = 1;
+
+            // Mettre à jour localStorage
+            CartManager.updateItem(productId, newQuantity);
+
+            // Mettre à jour l'interface
+            updateLocalItemDisplay(productId, newQuantity);
+        }
+
+        function updateLocalItemDisplay(productId, quantity) {
+            const itemElement = document.querySelector(`.local-cart-item[data-product-id="${productId}"]`);
+            if (!itemElement) return;
+
+            // Mettre à jour l'input de quantité
+            const quantityInput = itemElement.querySelector('.local-quantity');
+            if (quantityInput) {
+                quantityInput.value = quantity;
+            }
+
+            // Recalculer le total de l'article
+            const priceText = itemElement.querySelector('.price').textContent;
+            const price = parsePrice(priceText);
+            const total = price * quantity;
+
+            const totalElement = itemElement.querySelector('.local-item-total');
+            if (totalElement) {
+                totalElement.textContent = formatCurrency(total);
+            }
+
+            // Recalculer le total du panier
+            updateLocalCartSummary();
+        }
+
+        function removeLocalCartItem(productId) {
+            if (confirm('Supprimer cet article du panier ?')) {
+                // Supprimer du localStorage
+                CartManager.removeItem(productId);
+
+                // Supprimer l'élément du DOM
+                const itemElement = document.querySelector(`.local-cart-item[data-product-id="${productId}"]`);
+                if (itemElement) {
+                    itemElement.remove();
+                }
+
+                // Vérifier si le panier est vide
+                const remainingItems = document.querySelectorAll('.local-cart-item').length;
+                if (remainingItems === 0) {
+                    const container = document.getElementById('local-cart-content');
+                    const emptyMsg = document.getElementById('empty-cart-message');
+                    if (container) container.innerHTML = '';
+                    if (emptyMsg) emptyMsg.style.display = 'block';
+                }
+
+                updateLocalCartSummary();
+                CartManager.updateCartCount();
+            }
+        }
+
+        function updateLocalCartSummary() {
+            let subtotal = 0;
+
+            document.querySelectorAll('.local-cart-item').forEach(item => {
+                const totalText = item.querySelector('.local-item-total').textContent;
+                subtotal += parsePrice(totalText);
+            });
+
+            document.getElementById('local-subtotal').textContent = formatCurrency(subtotal);
+            document.getElementById('local-total').textContent = formatCurrency(subtotal);
+        }
+
+        // Fonctions utilitaires
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('fr-FR', {
+                style: 'currency',
+                currency: 'EUR'
+            }).format(amount);
+        }
+
+        function parsePrice(priceText) {
+            return parseFloat(priceText.replace(/[^\d,.-]/g, '').replace(',', '.'));
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            // Toujours afficher le panier localStorage
+            renderLocalCart();
+
+            // Mettre à jour le compteur
+            CartManager.updateCartCount();
+        });
+    </script>
+}
