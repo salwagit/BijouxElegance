@@ -1,7 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using BijouxElegance.Services;
+using System.Security.Claims;
 
-namespace BijouxElegance.Components
+namespace BijouxElegance.ViewComponents
 {
     public class CartCountViewComponent : ViewComponent
     {
@@ -14,16 +15,30 @@ namespace BijouxElegance.Components
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public IViewComponentResult Invoke()
+        public async Task<IViewComponentResult> InvokeAsync()
         {
-            var cartId = _httpContextAccessor.HttpContext.Session.GetString("CartId");
-            if (string.IsNullOrEmpty(cartId))
+            var httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext == null)
+                return View(0);
+
+            string cartId;
+
+            if (httpContext.User.Identity?.IsAuthenticated == true)
             {
-                return Content("0");
+                cartId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            }
+            else
+            {
+                cartId = httpContext.Session.GetString("CartId");
             }
 
-            var count = _cartService.GetCartCount(cartId);
-            return Content(count.ToString());
+            int count = 0;
+            if (!string.IsNullOrEmpty(cartId))
+            {
+                count = _cartService.GetCartCount(cartId);
+            }
+
+            return View(count);
         }
     }
 }

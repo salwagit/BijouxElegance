@@ -22,12 +22,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // Ajouter distributed cache (in-memory for demo; replace with Redis in production)
 builder.Services.AddDistributedMemoryCache();
 
+// Ajouter memory cache
+builder.Services.AddMemoryCache();
+
 // Ajouter les sessions
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromMinutes(30);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
+    options.Cookie.Name = ".BijouxElegance.Session";
 });
 
 // Ajouter les services personnalisés
@@ -85,7 +89,7 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
         if (productId <= 0 || quantity <= 0)
             return Results.BadRequest(new { success = false, error = "Invalid productId or quantity" });
 
-        // session cart id
+        // Récupérer ou créer cartId
         var cartId = http.Session.GetString("CartId");
         if (string.IsNullOrEmpty(cartId))
         {
@@ -93,7 +97,7 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
             http.Session.SetString("CartId", cartId);
         }
 
-        // Use CartService to add to cart; it will persist to DB and update cache
+        // Ajouter au panier
         cartService.AddToCart(cartId, productId, quantity);
 
         var count = cartService.GetCartCount(cartId);
@@ -102,8 +106,92 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
     catch (Exception ex)
     {
         Console.WriteLine("/cart/add error: " + ex);
-        http.Response.StatusCode = 500;
-        return Results.Json(new { success = false, error = ex.Message });
+        return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+    }
+});
+
+// API pour récupérer le compteur du panier
+app.MapGet("/cart/count", (HttpContext http, CartService cartService) =>
+{
+    try
+    {
+        var cartId = http.Session.GetString("CartId");
+        if (string.IsNullOrEmpty(cartId))
+            return Results.Json(new { count = 0 });
+
+        var count = cartService.GetCartCount(cartId);
+        return Results.Json(new { count });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("/cart/count error: " + ex);
+        return Results.Json(new { count = 0 });
+    }
+});
+
+// API pour synchroniser le panier localStorage
+app.MapPost("/cart/sync-local", async (HttpContext http, CartService cartService) =>
+{
+    try
+    {
+        var request = await http.Request.ReadFromJsonAsync<SyncLocalCartRequest>();
+        if (request?.Items == null || !request.Items.Any())
+            return Results.BadRequest(new { success = false, error = "Panier vide" });
+
+        // Récupérer ou créer cartId
+        var cartId = http.Session.GetString("CartId");
+        if (string.IsNullOrEmpty(cartId))
+        {
+            cartId = Guid.NewGuid().ToString();
+            http.Session.SetString("CartId", cartId);
+        }
+
+        // Synchroniser vers la base de données
+        cartService.SyncLocalStorageToDatabase(cartId, request.Items);
+
+        return Results.Json(new
+        {
+            success = true,
+            message = "Panier synchronisé",
+            cartId
+        });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("/cart/sync-local error: " + ex);
+        return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+    }
+});
+
+// API pour les informations produit
+app.MapGet("/api/products/{id}/cart-info", async (int id, ApplicationDbContext context) =>
+{
+    try
+    {
+        var product = await context.Products
+            .Include(p => p.Category)
+            .Where(p => p.ProductId == id)
+            .Select(p => new
+            {
+                p.ProductId,
+                p.Name,
+                p.Description,
+                p.Price,
+                p.ImageUrl,
+                p.StockQuantity,
+                CategoryName = p.Category.Name,
+                PriceFormatted = p.Price.ToString("C")
+            })
+            .FirstOrDefaultAsync();
+
+        if (product == null)
+            return Results.Json(new { error = "Produit non trouvé" }, statusCode: 404);
+
+        return Results.Json(product);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: 500);
     }
 });
 
@@ -111,3 +199,11 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
 app.MapRazorPages();
 
 app.Run();
+
+// Modèles pour les requêtes API
+public class SyncLocalCartRequest
+{
+    public List<LocalCartItemDTO> Items { get; set; } = new();
+}
+
+// Note: LocalCartItemDTO est maintenant défini dans CartService.cs

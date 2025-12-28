@@ -50,29 +50,22 @@ namespace BijouxElegance.Pages.Api.Cart
 
             if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
             {
-                return BadRequest(new { success = false, error = "Invalid request payload" });
+                return BadRequest(new { success = false, error = "Requête invalide" });
             }
 
-            var cartId = HttpContext.Session.GetString("CartId");
-            if (string.IsNullOrEmpty(cartId))
-            {
-                cartId = _cartService.GetCartId();
-                HttpContext.Session.SetString("CartId", cartId);
-            }
+            // Utiliser GetOrCreateCartId
+            var cartId = _cartService.GetOrCreateCartId();
 
             try
             {
                 _cartService.AddToCart(cartId, request.ProductId, request.Quantity);
+                var count = _cartService.GetCartCount(cartId);
+                return new JsonResult(new { success = true, count });
             }
             catch (System.Exception ex)
             {
-                return BadRequest(new { success = false, error = "Failed to add to cart: " + ex.Message });
+                return BadRequest(new { success = false, error = ex.Message });
             }
-
-            var count = 0;
-            try { count = _cartService.GetCartCount(cartId); } catch { count = 0; }
-
-            return new JsonResult(new { success = true, count });
         }
     }
 }

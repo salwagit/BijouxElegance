@@ -25,15 +25,216 @@
                 <div class="body">
                     <div>
                         <div class="title">@product.Name</div>
-                        <div class="desc">@product.Description.Substring(0, Math.Min(100, product.Description.Length))</div>
+                        <div class="desc">@product.Description.Substring(0, Math.Min(100, product.Description.Length))...</div>
                     </div>
 
                     <div class="footer">
                         <div class="price">@product.Price.ToString("C")</div>
-                        <button class="btn-gold product-view-btn" data-id="@product.ProductId" type="button">Voir</button>
+                        <div class="d-flex gap-1">
+                            <!-- Bouton "Voir" -->
+                            <button class="btn btn-outline-secondary btn-sm product-view-btn"
+                                    data-id="@product.ProductId"
+                                    type="button">
+                                <i class="fas fa-eye"></i> Voir
+                            </button>
+                            <!-- Bouton "+" pour ajouter rapidement -->
+                            <button class="btn btn-gold btn-sm quick-add-btn"
+                                    data-product-id="@product.ProductId"
+                                    data-product-name="@product.Name"
+                                    data-product-price="@product.Price"
+                                    title="Ajouter au panier">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
         }
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        // Gestionnaire pour les boutons "Voir"
+        document.addEventListener('DOMContentLoaded', function() {
+            // Redirection vers la page détail quand on clique sur "Voir"
+            document.querySelectorAll('.product-view-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const productId = this.dataset.id;
+                    window.location.href = `/ProductDetail/${productId}`;
+                });
+            });
+
+            // Gestion des boutons "+" (ajout rapide)
+            document.querySelectorAll('.quick-add-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const productId = this.dataset.productId;
+                    const productName = this.dataset.productName;
+                    const productPrice = this.dataset.productPrice;
+
+                    // Ajouter au panier
+                    quickAddToCart(productId, productName, productPrice);
+
+                    // Animer le bouton
+                    this.classList.add('btn-success');
+                    this.innerHTML = '<i class="fas fa-check"></i>';
+                    setTimeout(() => {
+                        this.classList.remove('btn-success');
+                        this.innerHTML = '<i class="fas fa-plus"></i>';
+                    }, 1000);
+                });
+            });
+        });
+
+        // Fonction d'ajout rapide au panier
+        function quickAddToCart(productId, productName, productPrice) {
+            try {
+                // Récupérer le panier actuel
+                let cart = JSON.parse(localStorage.getItem('bijoux-cart') || '[]');
+
+                // Vérifier si le produit est déjà dans le panier
+                const existingItem = cart.find(item => item.productId == productId);
+
+                if (existingItem) {
+                    existingItem.quantity += 1;
+                } else {
+                    cart.push({
+                        productId: parseInt(productId),
+                        quantity: 1,
+                        addedAt: new Date().toISOString(),
+                        name: productName,
+                        price: parseFloat(productPrice)
+                    });
+                }
+
+                // Sauvegarder dans localStorage
+                localStorage.setItem('bijoux-cart', JSON.stringify(cart));
+
+                // Mettre à jour le badge
+                updateCartBadge();
+
+                // Afficher une notification rapide
+                showQuickNotification(`
+                    <i class="fas fa-check-circle text-success me-2"></i>
+                    <strong>${productName}</strong> ajouté au panier
+                `);
+
+                return cart.reduce((total, item) => total + item.quantity, 0);
+
+            } catch (error) {
+                console.error('Erreur ajout rapide:', error);
+                return 0;
+            }
+        }
+
+        // Fonction pour mettre à jour le badge du panier
+        function updateCartBadge() {
+            try {
+                const cart = JSON.parse(localStorage.getItem('bijoux-cart') || '[]');
+                const count = cart.reduce((total, item) => total + item.quantity, 0);
+
+                document.querySelectorAll('.cart-count').forEach(badge => {
+                    if (count > 0) {
+                        badge.textContent = count;
+                        badge.style.display = 'inline-block';
+                        badge.classList.add('cart-bounce');
+                        setTimeout(() => badge.classList.remove('cart-bounce'), 300);
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                });
+
+                // Mettre à jour le cookie pour le serveur
+                const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
+                document.cookie = `bijoux-cart-local=${encodeURIComponent(JSON.stringify(cart))}; expires=${expires}; path=/`;
+
+            } catch (error) {
+                console.error('Erreur mise à jour badge:', error);
+            }
+        }
+
+        // Fonction de notification rapide
+        function showQuickNotification(message) {
+            // Supprimer les notifications existantes
+            document.querySelectorAll('.quick-notification').forEach(el => el.remove());
+
+            // Créer la notification
+            const notification = document.createElement('div');
+            notification.className = 'quick-notification alert alert-success alert-dismissible fade show';
+            notification.style.cssText = `
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                z-index: 1050;
+                min-width: 300px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            `;
+
+            notification.innerHTML = `
+                <div class="d-flex align-items-center">
+                    ${message}
+                    <button type="button" class="btn-close ms-2" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            // Auto-suppression après 2 secondes
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    const bsAlert = new bootstrap.Alert(notification);
+                    bsAlert.close();
+                }
+            }, 2000);
+        }
+    </script>
+
+    <style>
+        /* Animation pour le badge */
+        .cart-bounce {
+            animation: bounce 0.3s ease;
+        }
+
+        @@keyframes bounce {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.3);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        /* Styles pour les boutons */
+        .product-card .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .product-card .price {
+            font-weight: bold;
+            color: #D4AF37;
+            font-size: 1.1rem;
+        }
+
+        .btn-gold.btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .btn-outline-secondary.btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .quick-add-btn:hover {
+            background-color: #B89729;
+            border-color: #B89729;
+        }
+    </style>
+}
