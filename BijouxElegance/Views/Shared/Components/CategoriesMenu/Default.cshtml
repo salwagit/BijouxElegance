@@ -1,0 +1,10 @@
+﻿@model List<BijouxElegance.Models.Category>
+
+@foreach (var category in Model)
+{
+    <li>
+        <a class="dropdown-item" href="/Category/@category.CategoryId">
+            <i class="@category.IconClass"></i> @category.Name
+        </a>
+    </li>
+}

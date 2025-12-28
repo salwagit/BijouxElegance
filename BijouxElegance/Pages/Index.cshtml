@@ -1,0 +1,39 @@
+﻿@page
+@model BijouxElegance.Pages.IndexModel
+
+@{
+    ViewData["Title"] = "Bijoux Élégance";
+}
+
+<div class="hero-section">
+    <div class="container">
+        <h1>BIJOUX ÉLÉGANCE</h1>
+        <p>Des créations raffinées pensées pour sublimer chaque instant.</p>
+    </div>
+</div>
+
+<div class="container">
+    <div class="section-title">
+        <h2>Produits Vedettes</h2>
+    </div>
+
+    <div class="cards-grid">
+        @foreach (var product in Model.ViewModel.FeaturedProducts)
+        {
+            <div class="product-card">
+                <img src="@product.ImageUrl" alt="@product.Name" />
+                <div class="body">
+                    <div>
+                        <div class="title">@product.Name</div>
+                        <div class="desc">@product.Description.Substring(0, Math.Min(100, product.Description.Length))</div>
+                    </div>
+
+                    <div class="footer">
+                        <div class="price">@product.Price.ToString("C")</div>
+                        <button class="btn-gold product-view-btn" data-id="@product.ProductId" type="button">Voir</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>

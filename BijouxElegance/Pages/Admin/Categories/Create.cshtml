@@ -1,0 +1,37 @@
+﻿@page
+@model BijouxElegance.Pages.Admin.Categories.CreateModel
+@{
+    ViewData["Title"] = "Nouvelle Catégorie";
+}
+
+<div class="container py-5">
+    <h1>Nouvelle Catégorie</h1>
+
+    <div class="row">
+        <div class="col-md-6">
+            <form method="post">
+                <div class="form-group mb-3">
+                    <label asp-for="Category.Name" class="control-label">Nom *</label>
+                    <input asp-for="Category.Name" class="form-control" />
+                    <span asp-validation-for="Category.Name" class="text-danger"></span>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="Category.Description" class="control-label">Description</label>
+                    <textarea asp-for="Category.Description" class="form-control" rows="3"></textarea>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="Category.IconClass" class="control-label">Icône FontAwesome</label>
+                    <input asp-for="Category.IconClass" class="form-control" value="fas fa-gem" />
+                    <small class="text-muted">Ex: fas fa-gem, fas fa-ring, fas fa-star</small>
+                </div>
+
+                <div class="form-group">
+                    <input type="submit" value="Créer" class="btn btn-gold" />
+                    <a asp-page="Index" class="btn btn-outline-secondary">Annuler</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
