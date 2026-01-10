@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Text;
 using System.Linq;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace BijouxElegance.Pages.Admin.Products
 {
@@ -49,6 +50,24 @@ namespace BijouxElegance.Pages.Admin.Products
         {
             Console.WriteLine("Create.OnPostAsync called");
 
+            // Ensure ViewData categories always available when re-displaying the page
+            ViewData["Categories"] = new SelectList(_context.Categories.OrderBy(c => c.CategoryId).ToList(), "CategoryId", "Name");
+
+            // Binding safeguard: sometimes complex binding for Product.CategoryId may be missed in certain form setups
+            var formCat = Request.Form["Product.CategoryId"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(formCat) && int.TryParse(formCat, out var parsedCat))
+            {
+                Product ??= new Models.Product();
+                Product.CategoryId = parsedCat;
+
+                // Clear any modelstate errors for this key
+                if (ModelState.ContainsKey("Product.CategoryId"))
+                {
+                    ModelState["Product.CategoryId"].Errors.Clear();
+                    ModelState["Product.CategoryId"].ValidationState = ModelValidationState.Valid;
+                }
+            }
+
             if (!ModelState.IsValid)
             {
                 // Log model state errors
@@ -64,7 +83,6 @@ namespace BijouxElegance.Pages.Admin.Products
                 Console.WriteLine(sb.ToString());
 
                 TempData["ErrorMessage"] = "Données invalides dans le formulaire. Vérifiez les champs obligatoires.";
-                ViewData["Categories"] = new SelectList(_context.Categories, "CategoryId", "Name");
                 return Page();
             }
 
@@ -72,13 +90,29 @@ namespace BijouxElegance.Pages.Admin.Products
             {
                 Console.WriteLine($"Creating product: Name={Product?.Name}, Price={Product?.Price}, CategoryId={Product?.CategoryId}");
 
-                // Handle image upload
+                // Handle image upload if provided
                 if (ImageFile != null && ImageFile.Length > 0)
                 {
+                    // Validate extension and size
+                    var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+                    var ext = Path.GetExtension(ImageFile.FileName).ToLowerInvariant();
+                    if (!allowed.Contains(ext))
+                    {
+                        ModelState.AddModelError("ImageFile", "Type d'image non autorisé. Utilisez jpg, png ou webp.");
+                        return Page();
+                    }
+
+                    const long maxBytes = 5 * 1024 * 1024; // 5 MB
+                    if (ImageFile.Length > maxBytes)
+                    {
+                        ModelState.AddModelError("ImageFile", "Image trop grande (max 5 MB).");
+                        return Page();
+                    }
+
                     var uploads = Path.Combine(_env.WebRootPath, "images");
                     if (!Directory.Exists(uploads)) Directory.CreateDirectory(uploads);
 
-                    var fileName = Path.GetRandomFileName() + Path.GetExtension(ImageFile.FileName);
+                    var fileName = Guid.NewGuid().ToString("N") + ext;
                     var filePath = Path.Combine(uploads, fileName);
                     using (var stream = System.IO.File.Create(filePath))
                     {
@@ -87,6 +121,11 @@ namespace BijouxElegance.Pages.Admin.Products
 
                     Product.ImageUrl = "/images/" + fileName;
                     Console.WriteLine("Saved image to: " + Product.ImageUrl);
+                }
+                else
+                {
+                    // set default placeholder image to ensure UI shows something
+                    Product.ImageUrl = Product.ImageUrl ?? "/images/default-product.png";
                 }
 
                 _context.Products.Add(Product);
@@ -100,7 +139,6 @@ namespace BijouxElegance.Pages.Admin.Products
             {
                 Console.WriteLine("Create product failed: " + ex);
                 TempData["ErrorMessage"] = "Erreur lors de la création du produit: " + ex.Message;
-                ViewData["Categories"] = new SelectList(_context.Categories, "CategoryId", "Name");
                 return Page();
             }
         }

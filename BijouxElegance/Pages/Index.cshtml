@@ -53,6 +53,53 @@
     </div>
 </div>
 
+@* New section: Products by category *@
+<div class="container mt-5">
+    <div class="section-title">
+        <h2>Par catégories</h2>
+    </div>
+
+    @foreach (var category in Model.ViewModel.Categories)
+    {
+        if (category.Products != null && category.Products.Any())
+        {
+            <div class="category-block mb-4">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h3 class="h5 mb-0">@category.Name</h3>
+                    <a class="small text-decoration-none" href="/Category/@category.CategoryId">Voir tout</a>
+                </div>
+
+                <div class="cards-grid small-grid">
+                    @foreach (var product in category.Products.Take(6))
+                    {
+                        <div class="product-card">
+                            <img src="@product.ImageUrl" alt="@product.Name" />
+                            <div class="body">
+                                <div>
+                                    <div class="title">@product.Name</div>
+                                    <div class="desc">@product.Description.Substring(0, Math.Min(80, product.Description.Length))...</div>
+                                </div>
+
+                                <div class="footer">
+                                    <div class="price">@product.Price.ToString("C")</div>
+                                    <div class="d-flex gap-1">
+                                        <button class="btn btn-outline-secondary btn-sm product-view-btn" data-id="@product.ProductId" type="button">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <button class="btn btn-gold btn-sm quick-add-btn" data-product-id="@product.ProductId" data-product-name="@product.Name" data-product-price="@product.Price" title="Ajouter au panier">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
 @section Scripts {
     <script>
         // Gestionnaire pour les boutons "Voir"
@@ -235,6 +282,13 @@
         .quick-add-btn:hover {
             background-color: #B89729;
             border-color: #B89729;
+        }
+
+        /* grid tweaks for category small-grid */
+        .cards-grid.small-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
         }
     </style>
 }
