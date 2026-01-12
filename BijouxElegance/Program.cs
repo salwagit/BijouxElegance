@@ -1,25 +1,23 @@
 using BijouxElegance.Data;
 using BijouxElegance.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
 using System.Text.Json;
-using FuzzySharp;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Ajouter les services
 builder.Services.AddRazorPages();
-
-// Add HttpClient for external AI calls
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddHttpContextAccessor();
 
-// Register OllamaService with base address
-builder.Services.AddHttpClient<OllamaService>(client =>
-{
-    client.BaseAddress = new Uri(builder.Configuration["OLLAMA_URL"] ?? "http://localhost:11434");
-});
+// Register GroqService as typed HTTP client
+builder.Services.AddScoped<SimpleChatService>();
 
-// Determine connection string with fallback
+builder.Services.AddControllers();
+
+// Configuration de la base de données
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrEmpty(connectionString))
 {
@@ -27,15 +25,8 @@ if (string.IsNullOrEmpty(connectionString))
     Console.WriteLine("No DefaultConnection found in configuration, using fallback LocalDB connection.");
 }
 
-// Configurer la base de données
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
-
-// Ajouter distributed cache (in-memory for demo; replace with Redis in production)
-builder.Services.AddDistributedMemoryCache();
-
-// Ajouter memory cache
-builder.Services.AddMemoryCache();
 
 // Ajouter les sessions
 builder.Services.AddSession(options =>
@@ -48,7 +39,6 @@ builder.Services.AddSession(options =>
 
 // Ajouter les services personnalisés
 builder.Services.AddScoped<CartService>();
-builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
@@ -67,8 +57,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// NOTE: Warm-up and caching removed as requested to restore original behavior
-
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -82,10 +70,7 @@ else
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
-
-// Utiliser les sessions
 app.UseSession();
-
 app.UseAuthorization();
 
 // Minimal API endpoint for AJAX add-to-cart
@@ -103,7 +88,6 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
         if (productId <= 0 || quantity <= 0)
             return Results.BadRequest(new { success = false, error = "Invalid productId or quantity" });
 
-        // Récupérer ou créer cartId
         var cartId = http.Session.GetString("CartId");
         if (string.IsNullOrEmpty(cartId))
         {
@@ -111,16 +95,14 @@ app.MapPost("/cart/add", async (HttpContext http, CartService cartService) =>
             http.Session.SetString("CartId", cartId);
         }
 
-        // Ajouter au panier
         cartService.AddToCart(cartId, productId, quantity);
-
         var count = cartService.GetCartCount(cartId);
         return Results.Json(new { success = true, count });
     }
     catch (Exception ex)
     {
         Console.WriteLine("/cart/add error: " + ex);
-        return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+        return Results.Json(new { success = false, error = ex.Message });
     }
 });
 
@@ -149,10 +131,9 @@ app.MapPost("/cart/sync-local", async (HttpContext http, CartService cartService
     try
     {
         var request = await http.Request.ReadFromJsonAsync<SyncLocalCartRequest>();
-        if( request?.Items == null || !request.Items.Any())
+        if (request?.Items == null || !request.Items.Any())
             return Results.BadRequest(new { success = false, error = "Panier vide" });
 
-        // Récupérer ou créer cartId
         var cartId = http.Session.GetString("CartId");
         if (string.IsNullOrEmpty(cartId))
         {
@@ -160,7 +141,6 @@ app.MapPost("/cart/sync-local", async (HttpContext http, CartService cartService
             http.Session.SetString("CartId", cartId);
         }
 
-        // Synchroniser vers la base de données
         cartService.SyncLocalStorageToDatabase(cartId, request.Items);
 
         return Results.Json(new
@@ -173,7 +153,7 @@ app.MapPost("/cart/sync-local", async (HttpContext http, CartService cartService
     catch (Exception ex)
     {
         Console.WriteLine("/cart/sync-local error: " + ex);
-        return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+        return Results.Json(new { success = false, error = ex.Message });
     }
 });
 
@@ -214,7 +194,7 @@ app.MapPost("/chat", async (HttpContext http) =>
 {
     try
     {
-        var req = await http.Request.ReadFromJsonAsync<ChatRequest>();
+        var req = await http.Request.ReadFromJsonAsync<SimpleChatRequest>();
         if (req == null || string.IsNullOrWhiteSpace(req.Message))
             return Results.BadRequest(new { error = "Message vide" });
 
@@ -227,7 +207,7 @@ app.MapPost("/chat", async (HttpContext http) =>
             reply = "Les délais de livraison sont généralement de 3 à 5 jours ouvrés.";
         else if (userMsg.Contains("retour") || userMsg.Contains("remboursement"))
             reply = "Vous pouvez retourner un produit sous 14 jours. Consultez notre politique de retour pour plus de détails.";
-        else if (userMsg.Contains("prix") || userMsg.Contains("coûte") || userMsg.Contains("prix"))
+        else if (userMsg.Contains("prix") || userMsg.Contains("coûte"))
             reply = "Les prix sont indiqués sur la fiche produit. Si vous avez une question sur un produit précis, envoyez son nom.";
         else
             reply = "Je suis un chatbot d'exemple. Essayez des mots-clés : 'livraison', 'retour', 'prix'.";
@@ -237,66 +217,74 @@ app.MapPost("/chat", async (HttpContext http) =>
     catch (Exception ex)
     {
         Console.WriteLine("/chat error: " + ex);
-        return Results.Json(new { error = ex.Message }, statusCode: 500);
+        return Results.Json(new { error = ex.Message });
     }
 });
 
-// AI chatbot using Ollama local model + fuzzy search in DB
-app.MapPost("/chat/ai-ollama", async (HttpContext http, OllamaService ollama, ApplicationDbContext db, IConfiguration config) =>
+// Version plus simple
+app.MapPost("/api/groq/chat", async (HttpContext http, SimpleChatService chatService) =>
 {
     try
     {
-        var req = await http.Request.ReadFromJsonAsync<ChatRequest>();
-        if (req == null || string.IsNullOrWhiteSpace(req.Message))
-            return Results.BadRequest(new { error = "Message vide" });
+        var request = await http.Request.ReadFromJsonAsync<GroqChatRequest>();
+        if (request == null || string.IsNullOrWhiteSpace(request.Message))
+            return Results.BadRequest(new { error = "Message requis" });
 
-        var userMessage = req.Message.Trim();
+        Console.WriteLine($"?? Chat request: {request.Message}");
 
-        // Load products from DB (names + description)
-        var products = await db.Products.AsNoTracking()
-            .Select(p => new { p.ProductId, p.Name, p.Description, p.Price, p.StockQuantity })
-            .ToListAsync();
+        var response = await chatService.ProcessMessageAsync(
+            request.Message,
+             request.LocalCart
+        );
+     
+        Console.WriteLine($"? Chat response: {response.Source} en {response.ResponseTimeMs}ms");
 
-        // Compute fuzzy scores and pick top matches
-        var scored = products
-            .Select(p => new { Product = p, Score = Fuzz.TokenSetRatio(userMessage, (p.Name ?? string.Empty) + " " + (p.Description ?? string.Empty)) })
-            .OrderByDescending(x => x.Score)
-            .Take(5)
-            .Where(x => x.Score >= 45)
-            .ToList();
-
-        var contextText = scored.Any()
-            ? string.Join("\n\n", scored.Select(s => $"{s.Product.Name} (ID:{s.Product.ProductId}) - {s.Product.Price:C} - stock:{s.Product.StockQuantity}\n{s.Product.Description}"))
-            : "";
-
-        var promptBuilder = new StringBuilder();
-        promptBuilder.AppendLine("You are a helpful assistant for Bijoux Elegance. Use the product facts below to answer user questions. Only use the facts provided and do not hallucinate.");
-        if (!string.IsNullOrEmpty(contextText))
+        // Créer l'objet de réponse directement
+        var result = new
         {
-            promptBuilder.AppendLine("\nProduct facts:\n");
-            promptBuilder.AppendLine(contextText);
-        }
-        promptBuilder.AppendLine("\nUser question:\n");
-        promptBuilder.AppendLine(userMessage);
-        promptBuilder.AppendLine("\nAnswer in French, be concise and give relevant product information when available.");
+            success = response.Success,
+            reply = response.Message,
+            products = response.Products?.Select(p => new
+            {
+                id = p.ProductId,
+                name = p.Name,
+                price = p.Price,
+                stock = p.StockQuantity,
+                image = p.ImageUrl,
+                category = p.Category?.Name
+            }).ToArray() ?? Array.Empty<object>(),  // Utiliser ToArray() au lieu de ToList()
+            hasProducts = response.HasProducts,
+            responseTimeMs = response.ResponseTimeMs,
+            source = response.Source
+        };
 
-        var prompt = promptBuilder.ToString();
-
-        // Use OllamaService to get response
-        var generated = await ollama.AskAsync(prompt);
-
-        return Results.Json(new { reply = generated, contextCount = scored.Count });
+        return Results.Json(result);
     }
     catch (Exception ex)
     {
-        Console.WriteLine("/chat/ai-ollama error: " + ex);
-        return Results.Json(new { error = ex.Message }, statusCode: 500);
+        Console.WriteLine($"? /api/groq/chat error: {ex}");
+        return Results.Json(new
+        {
+            success = false,
+            reply = "Désolé, le service de chat est temporairement indisponible. Contactez-nous au 01 23 45 67 89.",
+            error = ex.Message,
+            source = "error"
+        }, statusCode: 500);
     }
 });
 
-// Mapper les Razor Pages
-app.MapRazorPages();
+// Health check
+app.MapGet("/api/groq/health", () =>
+{
+    return Results.Json(new
+    {
+        status = "healthy",
+        service = "Groq Chat API",
+        timestamp = DateTime.UtcNow
+    });
+});
 
+app.MapRazorPages();
 app.Run();
 
 // Modèles pour les requêtes API
@@ -305,10 +293,18 @@ public class SyncLocalCartRequest
     public List<LocalCartItemDTO> Items { get; set; } = new();
 }
 
-// Simple DTO for chatbot request
-public class ChatRequest
+public class SimpleChatRequest
 {
     public string Message { get; set; } = string.Empty;
 }
 
-// Note: LocalCartItemDTO est maintenant défini dans CartService.cs
+public class GroqChatRequest
+{
+    public string Message { get; set; } = string.Empty;
+    public string SessionId { get; set; } = string.Empty;
+    public List<BijouxElegance.Services.LocalCartItemDTO> LocalCart { get; set; } = new();
+}
+
+
+
+// DTO for local cart (ajoute dans un fichier séparé normalement)

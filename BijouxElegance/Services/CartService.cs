@@ -71,7 +71,7 @@ namespace BijouxElegance.Services
         {
             var existingItem = _context.CartItems
                 .FirstOrDefault(ci => ci.ProductId == productId && ci.CartId == cartId);
-            
+
             if (existingItem != null)
             {
                 existingItem.Quantity += quantity;
@@ -87,7 +87,7 @@ namespace BijouxElegance.Services
                 };
                 _context.CartItems.Add(cartItem);
             }
-
+        
             _context.SaveChanges();
             _cache.Remove($"cart_count_{cartId}");
             _cache.Remove($"cart_items_{cartId}");

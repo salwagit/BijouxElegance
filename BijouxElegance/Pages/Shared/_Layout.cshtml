@@ -144,6 +144,7 @@
             const input = document.getElementById('chatInput');
             const messages = document.getElementById('chatMessages');
 
+            // Append a single message bubble
             const appendMessage = (text, who, meta) => {
                 const wrap = document.createElement('div');
                 const div = document.createElement('div');
@@ -160,6 +161,7 @@
                 messages.scrollTop = messages.scrollHeight;
             };
 
+            // Loading indicator
             const setLoading = (on) => {
                 if (on) {
                     const d = document.createElement('div');
@@ -174,59 +176,211 @@
                 }
             };
 
-            const sendToAi = async (text) => {
-                // Prefer Ollama local model endpoint
-                try {
-                    const res = await fetch('/chat/ai-ollama', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text })
-                    });
-                    const json = await res.json();
-                    if (res.ok && (json.reply || json.error)) {
-                        return { reply: json.reply || json.error, contextCount: json.contextCount };
+            // Display suggested products returned by API
+            const displaySuggestedProducts = (products) => {
+                if (!products || products.length === 0) return;
+                const messagesDiv = document.getElementById('chatMessages');
+
+                const productsHtml = products.map(product => `
+                    <div class="suggested-product" style="
+                        border: 1px solid #e0c9a6;
+                        border-radius: 8px;
+                        padding: 12px;
+                        margin: 10px 0;
+                        background: #fffaf0;
+                    ">
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <img src="${product.image || '/images/default-product.png'}" 
+                                 style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"
+                                 onerror="this.src='/images/default-product.png'">
+                            <div style="flex: 1;">
+                                <strong style="color: #b3894a;">${product.name}</strong>
+                                <div style="font-size: 1.1em; color: #2c3e50; font-weight: bold;">
+                                    ${product.price}
+                                </div>
+                                <div style="font-size: 0.85em; color: #666;">
+                                    ${product.stock > 0 ? '✅ En stock' : '⏳ Bientôt disponible'}
+                                </div>
+                            </div>
+                        </div>
+                        <a href="/Product/Details/${product.id}" 
+                           class="btn-view-product" 
+                           style="
+                                display: block;
+                                text-align: center;
+                                margin-top: 8px;
+                                padding: 6px;
+                                background: linear-gradient(90deg,#b3894a,#f2d586);
+                                color: white;
+                                border-radius: 4px;
+                                text-decoration: none;
+                                font-size: 0.9em;
+                           ">
+                           👁️ Voir ce produit
+                        </a>
+                    </div>
+                `).join('');
+
+                const container = document.createElement('div');
+                container.innerHTML = `
+                    <div style="font-size: 0.85em; color: #b3894a; margin: 5px 0;">
+                        💎 Produits correspondants :
+                    </div>
+                    ${productsHtml}
+                `;
+
+                messagesDiv.appendChild(container);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+
+            // Instant fallback responses
+            const getInstantFallback = (text) => {
+                const lowerText = text.toLowerCase();
+
+                const responses = {
+                    'bonjour': 'Bonjour ! Bienvenue chez Bijoux Élégance. 💎',
+                    'salut': 'Salut ! Comment puis-je vous aider aujourd\'hui ?',
+                    'prix': 'Consultez nos fiches produits pour les prix détaillés.',
+                    'livraison': 'Livraison offerte à partir de 150€ d\'achat ! 🚚',
+                    'contact': '📞 01 23 45 67 89 | ✉️ contact@bijouxelegance.com',
+                    'heure': 'Ouvert du lundi au samedi, 10h-19h.',
+                    'adresse': '123 Avenue des Champs-Élysées, 75008 Paris 🗼',
+                    'cadeau': 'Emballage cadeau offert sur demande ! 🎁'
+                };
+
+                for (const [keyword, response] of Object.entries(responses)) {
+                    if (lowerText.includes(keyword)) {
+                        return { reply: response, contextCount: 0 };
                     }
-                    // fallthrough to fallback
-                } catch (e) {
-                    // ignore and fallback
                 }
 
-                // Fallback to local canned endpoint
+                return { reply: 'Pour une assistance personnalisée, contactez-nous directement. 📞', contextCount: 0 };
+            };
+
+            const generateSessionId = () => {
+                return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            };
+
+            const formatCurrency = (amount) => {
                 try {
-                    const res = await fetch('/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text })
-                    });
-                    const json = await res.json();
-                    return { reply: json.reply || json.error || 'Erreur de traitement', contextCount: null };
+                    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
                 } catch (e) {
-                    return { reply: 'Impossible de contacter le service de chat.', contextCount: null };
+                    return amount + '€';
                 }
             };
+
+        // Call Groq API avec RAG
+        const sendToAi = async (text) => {
+            // ===============================
+            // 🛒 Lire le panier local
+            // ===============================
+            let raw = localStorage.getItem('bijoux-cart') || localStorage.getItem('cart');
+            let localCartItems = [];
+
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        localCartItems = parsed.map(item => ({
+                            ProductId: parseInt(item.productId || item.ProductId || item.id, 10) || 0,
+                            Quantity: parseInt(item.quantity || item.qty || item.Quantity, 10) || 1
+                        })).filter(i => i.ProductId > 0 && i.Quantity > 0);
+                    }
+                } catch (e) {
+                    console.warn("⚠️ Panier local illisible", e);
+                }
+            }
+
+            try {
+                const response = await fetch('/api/groq/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: text,
+                        sessionId: generateSessionId(),
+                        localCart: localCartItems
+                    })
+                });
+
+                const rawText = await response.text();
+
+                if (!response.ok) {
+                    console.error("❌ API HTTP Error:", rawText);
+                    throw new Error(rawText || `HTTP ${response.status}`);
+                }
+
+                let data;
+                try {
+                    data = JSON.parse(rawText);
+                } catch (e) {
+                    console.error("❌ JSON invalide:", rawText);
+                    throw new Error("Réponse serveur invalide");
+                }
+
+                // ===============================
+                // ✅ CAS NORMAL (SUCCESS)
+                // ===============================
+                if (data.success) {
+                    return {
+                        reply: data.reply || "Voici ce que j’ai trouvé 🤍",
+                        products: data.products || [],
+                        contextCount: data.products?.length || 0
+                    };
+                }
+
+                // ===============================
+                // ⚠️ CAS DÉGRADÉ (PAS D’ERREUR)
+                // ===============================
+                return {
+                    reply: data.reply || "Je peux vous aider à trouver le bijou idéal 🤍",
+                    products: data.products || []
+                };
+
+            } catch (error) {
+                console.error("🔥 sendToAi error:", error);
+
+                return {
+                    reply: "Je suis là 🤍 Pouvez-vous préciser le type de bijou ou le budget ?",
+                    products: []
+                };
+            }
+        };
 
             const onSend = async () => {
                 const text = input.value.trim();
                 if (!text) return;
+
+                // append user once here
                 appendMessage(text, 'user');
                 input.value = '';
+
                 setLoading(true);
                 const result = await sendToAi(text);
                 setLoading(false);
+
+                // append bot once here
                 appendMessage(result.reply, 'bot', { contextCount: result.contextCount });
+
+                if (result.products && result.products.length > 0) {
+                    displaySuggestedProducts(result.products);
+                }
+
+                return result;
             };
 
             toggle.addEventListener('click', () => {
                 widget.classList.toggle('open');
                 input.focus();
             });
+
             closeBtn.addEventListener('click', () => widget.classList.remove('open'));
             sendBtn.addEventListener('click', onSend);
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') onSend();
-            });
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') onSend(); });
 
-            // Optional: greet user when opened first time
+            // Greet user once when opened
             let greeted = false;
             toggle.addEventListener('click', () => {
                 if (!greeted) {

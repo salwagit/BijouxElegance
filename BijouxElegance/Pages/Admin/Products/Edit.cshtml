@@ -7,50 +7,65 @@
 <div class="container py-5">
     <h1>Modifier Produit</h1>
 
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+    }
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+    }
+
     <div class="row">
         <div class="col-md-8">
             <form method="post" enctype="multipart/form-data">
-                <input type="hidden" asp-for="Product.ProductId" />
+                @Html.AntiForgeryToken()
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+                <input type="hidden" asp-for="ProductVM.ProductId" />
+                <input type="hidden" asp-for="ProductVM.CurrentImageUrl" />
 
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label asp-for="Product.Name" class="control-label">Nom *</label>
-                            <input asp-for="Product.Name" class="form-control" />
-                            <span asp-validation-for="Product.Name" class="text-danger"></span>
+                            <label asp-for="ProductVM.Name" class="control-label">Nom *</label>
+                            <input asp-for="ProductVM.Name" class="form-control" />
+                            <span asp-validation-for="ProductVM.Name" class="text-danger"></span>
                         </div>
                     </div>
 
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label asp-for="Product.CategoryId" class="control-label">Catégorie *</label>
-                            <select asp-for="Product.CategoryId" class="form-control"
-                                    asp-items="ViewBag.Categories">
+                            <label asp-for="ProductVM.CategoryId" class="control-label">Catégorie *</label>
+                            <select asp-for="ProductVM.CategoryId" class="form-control"
+                                    asp-items="Model.Categories">
                                 <option value="">Sélectionner une catégorie</option>
                             </select>
-                            <span asp-validation-for="Product.CategoryId" class="text-danger"></span>
+                            <span asp-validation-for="ProductVM.CategoryId" class="text-danger"></span>
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group mb-3">
-                    <label asp-for="Product.Description" class="control-label">Description</label>
-                    <textarea asp-for="Product.Description" class="form-control" rows="4"></textarea>
+                    <label asp-for="ProductVM.Description" class="control-label">Description</label>
+                    <textarea asp-for="ProductVM.Description" class="form-control" rows="4"></textarea>
+                    <span asp-validation-for="ProductVM.Description" class="text-danger"></span>
                 </div>
 
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label asp-for="Product.Price" class="control-label">Prix *</label>
-                            <input asp-for="Product.Price" class="form-control" type="number" step="0.01" />
-                            <span asp-validation-for="Product.Price" class="text-danger"></span>
+                            <label asp-for="ProductVM.Price" class="control-label">Prix *</label>
+                            <input asp-for="ProductVM.Price" class="form-control" type="number" step="0.01" />
+                            <span asp-validation-for="ProductVM.Price" class="text-danger"></span>
                         </div>
                     </div>
 
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label asp-for="Product.OldPrice" class="control-label">Ancien Prix (optionnel)</label>
-                            <input asp-for="Product.OldPrice" class="form-control" type="number" step="0.01" />
+                            <label asp-for="ProductVM.OldPrice" class="control-label">Ancien Prix (optionnel)</label>
+                            <input asp-for="ProductVM.OldPrice" class="form-control" type="number" step="0.01" />
+                            <span asp-validation-for="ProductVM.OldPrice" class="text-danger"></span>
                         </div>
                     </div>
                 </div>
@@ -58,33 +73,78 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label asp-for="Product.StockQuantity" class="control-label">Quantité en stock *</label>
-                            <input asp-for="Product.StockQuantity" class="form-control" type="number" />
-                            <span asp-validation-for="Product.StockQuantity" class="text-danger"></span>
+                            <label asp-for="ProductVM.StockQuantity" class="control-label">Quantité en stock *</label>
+                            <input asp-for="ProductVM.StockQuantity" class="form-control" type="number" />
+                            <span asp-validation-for="ProductVM.StockQuantity" class="text-danger"></span>
                         </div>
                     </div>
 
                     <div class="col-md-6">
                         <div class="form-group mb-3">
-                            <label class="control-label">Image (fichier)</label>
+                            <label class="control-label">Image actuelle</label>
+                            @if (!string.IsNullOrEmpty(Model.ProductVM.CurrentImageUrl))
+                            {
+                                <div class="mb-2">
+                                    <img src="@Model.ProductVM.CurrentImageUrl"
+                                         class="img-thumbnail"
+                                         style="max-width: 150px; max-height: 150px;"
+                                         alt="Image actuelle"
+                                         onerror="this.src='/images/default-product.png'; this.onerror=null;" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted mb-2">Aucune image</div>
+                            }
+
+                            <label asp-for="ImageFile" class="control-label">Changer l'image</label>
                             <input type="file" asp-for="ImageFile" class="form-control" />
-                            <small class="text-muted">Sélectionnez une image depuis votre ordinateur pour remplacer l'actuelle.</small>
+                            <small class="text-muted">Laisser vide pour conserver l'image actuelle.</small>
+                            <span asp-validation-for="ImageFile" class="text-danger"></span>
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group mb-3">
                     <div class="form-check">
-                        <input asp-for="Product.IsFeatured" class="form-check-input" />
-                        <label asp-for="Product.IsFeatured" class="form-check-label">Produit vedette</label>
+                        <input asp-for="ProductVM.IsFeatured" class="form-check-input" />
+                        <label asp-for="ProductVM.IsFeatured" class="form-check-label">Produit vedette</label>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <input type="submit" value="Enregistrer" class="btn btn-gold" />
+                    <button type="submit" class="btn btn-gold">Enregistrer</button>
                     <a asp-page="Index" class="btn btn-outline-secondary">Annuler</a>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+
+    <script>
+        // Debug: afficher les données du formulaire avant soumission
+        document.querySelector('form').addEventListener('submit', function(e) {
+            console.log('Form submission data:');
+            const formData = new FormData(this);
+            for (let [key, value] of formData.entries()) {
+                console.log(`${key}: ${value}`);
+            }
+        });
+
+        // Fallback pour les images 404
+        document.addEventListener('DOMContentLoaded', function() {
+            const images = document.querySelectorAll('img');
+            images.forEach(img => {
+                img.onerror = function() {
+                    this.src = '/images/default-product.png';
+                    this.onerror = null; // Éviter les boucles infinies
+                };
+            });
+        });
+    </script>
+}
